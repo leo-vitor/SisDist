@@ -1,131 +1,117 @@
-// CLIENTE
-// salve salve 
-let net = require('net');
-let chalk = require('chalk')
-let readline = require('readline')
-let connectionParams = {
-    ip: '',
-    port: '',
-    nickname: ''
-} 
+const net = require("net");
+const readline = require("readline");
+const chalk = require("chalk");
 
-const terminal = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
-})
-
-let nicknameChange = false;
-
-let client  = new net.Socket();
-
-terminal.question(chalk.magenta('Qual comando deseja executar?: \n/ENTRAR\n/USUARIOS\n/NICK\n/SAIR\n'), (cmd) => {
-    switch(cmd){
-        case '/ENTRAR':
-                
-            terminal.question(chalk.yellow('Insira o IP desejado:\n'), (ip) => {
-                connectionParams.ip = ip;
-                terminal.question(chalk.yellow('Insira a porta desejada:\n'), (port) => {
-                    connectionParams.port = port;
-                    terminal.question(chalk.yellow('Insira o none de usuario desejado:\n'), (nickname) => {
-                        connectionParams.nickname = nickname;
-                        client.connect({
-                            ip: connectionParams.ip,
-                            port:2222
-    
-                        });
-                        
-    
-                    })
-    
-                })
-            })
-    
-                    
-            break;
-        case '/USUARIOS':
-    
-        break;
-        case '/SAIR':
-            client.destroy()
-        break;
-    
-        default:
-            break;
-            }
-})
-
-        
-client.on('connect',() => {
-    console.log(chalk.green('Cliente: Tentativa de conexão com o servidor'));
-
-    client.write(JSON.stringify({nome: connectionParams.nickname}));
-})
-
-client.on('ready', () => {
-    terminal.on('line', (input) => {
-        if(nicknameChange){
-            client.write(JSON.stringify({
-                owner: connectionParams.nickname,
-                newNickname: input
-            })) 
-            nicknameChange = false       
-        }
-        else{
-        client.write(JSON.stringify({
-            owner: connectionParams.nickname,
-            message: input
-        }))
-    }
-      });
-})
-
-client.on('data',(data) => {
-
-    let messageData = JSON.parse(data.toString())
-
-    if(messageData.nome != undefined && messageData.message != undefined){
-        console.log(chalk.magenta(messageData.nome).concat(':\t').concat(chalk.white(messageData.message)))
-    }
-    if(messageData.error != undefined){
-        console.log(chalk.red(messageData.error))
-    }
-
-
-    if(messageData.serverMessage != undefined){
-        console.log(chalk.yellow(messageData.serverMessage))
-
-        if(messageData.serverMessage == "Insira seu novo nome"){
-            nicknameChange = true
-        }
-    }
-    if(messageData.newName != undefined){
-        connectionParams.nickname = messageData.newName
-    }
-
-    if(Array.isArray(messageData)){
-        console.log(chalk.yellow('Lista de usuarios: \n'))
-        messageData.forEach(user => {
-            console.log(chalk.yellow(user.concat('\n')))
-        })
-     }
-
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout,
 });
 
-client.on('close', () => {
-    console.log(chalk.red('Cliente desconectado'))
-})
+const client = new net.Socket();
 
-client.on('error', (err) => {
-    console.log(chalk.red(err))
-})
-/*
-    client.connect({
-        port:2222
-    });
+const connectionParams = {
+  ip: "localhost", // IP do servidor (no caso, localhost)
+  port: 3333, // Porta do servidor
+  nickname: "",
+};
 
-    client.on('connect',() => {
-        client.write(JSON.stringify({
-            name: 'Mario'
-        }))
-    })
-*/
+function connectToServer() {
+  client.connect(connectionParams.port, connectionParams.ip, () => {
+    console.log(chalk.green("Cliente conectado ao servidor"));
+    rl.question(
+      chalk.yellow("Insira o nome de usuário desejado:\n"),
+      (nickname) => {
+        connectionParams.nickname = nickname;
+        // Envie o comando /ENTRAR com o apelido
+        client.write(`/ENTRAR ${connectionParams.nickname}`);
+      }
+    );
+  });
+}
+
+client.on("data", (data) => {
+  const messages = data.toString().trim().split("\n"); // Dividir mensagens por linha
+
+  messages.forEach((message) => {
+    try {
+      const messageData = JSON.parse(message);
+
+      if (messageData.owner && messageData.message) {
+        console.log(
+          chalk.magenta(messageData.owner) +
+            ":\t" +
+            chalk.white(messageData.message)
+        );
+      }
+
+      if (messageData.error) {
+        console.log(chalk.red(messageData.error));
+      }
+
+      if (messageData.serverMessage) {
+        console.log(chalk.yellow(messageData.serverMessage));
+
+        if (messageData.serverMessage === "Insira seu novo nome") {
+          rl.question(
+            chalk.yellow("Novo nome de usuário:\n"),
+            (newNickname) => {
+              client.write(
+                JSON.stringify({
+                  owner: connectionParams.nickname,
+                  message: `/NICK ${newNickname}`,
+                })
+              );
+            }
+          );
+        } else if (messageData.newName) {
+          connectionParams.nickname = messageData.newName;
+          console.log(
+            chalk.yellow(`Seu novo nome é: ${connectionParams.nickname}`)
+          );
+        }
+      }
+
+      if (messageData.userList) {
+        const userList = messageData.userList;
+        console.log(chalk.yellow("Lista de usuários:"));
+        userList.forEach((user) => {
+          console.log(chalk.yellow(user));
+        });
+      }
+    } catch (error) {
+      console.error(chalk.red(`Erro ao processar mensagem: ${error.message}`));
+    }
+  });
+});
+
+client.on("close", () => {
+  console.log(chalk.red("Cliente desconectado"));
+});
+
+client.on("error", (err) => {
+  console.log(chalk.red(err));
+});
+
+rl.on("line", (input) => {
+  if (input.startsWith("/ENTRAR")) {
+    connectToServer();
+  } else if (input.startsWith("/NICK ")) {
+    const newNickname = input.substring(6).trim();
+    client.write(
+      JSON.stringify({
+        owner: connectionParams.nickname,
+        message: `/NICK ${newNickname}`,
+      })
+    );
+  } else {
+    client.write(
+      JSON.stringify({
+        owner: connectionParams.nickname,
+        message: input,
+      })
+    );
+  }
+});
+
+// Inicie a conexão com o servidor quando o código é executado
+// connectToServer();
