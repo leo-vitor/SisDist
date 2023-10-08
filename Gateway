@@ -1,0 +1,98 @@
+import asyncio
+import socket
+import messages_pb2  # Importe as mensagens geradas pelo Protocol Buffers
+
+# Dicionário para rastrear os sockets dos dispositivos e suas informações
+connected_devices = {}
+
+async def handle_client(client_socket, addr):
+    while True:
+        try:
+            data = await loop.sock_recv(client_socket, 1024)
+            
+            if not data:
+                # Conexão encerrada pelo dispositivo
+                disconnected_device = None
+                for socket_key, device_info in connected_devices.items():
+                    if device_info["socket"] == client_socket:
+                        disconnected_device = device_info
+                        break
+                
+                if disconnected_device:
+                    print(f"Dispositivo com ID {disconnected_device['object_id']} desconectado: {disconnected_device['address']}")
+                    del connected_devices[socket_key]
+                
+                break
+            
+            smart_object_message = messages_pb2.SmartObjectMessage()
+            smart_object_message.ParseFromString(data)
+            
+            # Armazene o socket e informações do dispositivo conectado
+            device_info = {
+                "socket": client_socket,
+                "address": addr,
+                "object_id": smart_object_message.object_id,
+            }
+            connected_devices[client_socket] = device_info
+            
+            # Verifique se a mensagem é da lâmpada, do sensor ou do dispositivo de som
+            if smart_object_message.object_id == 1:  # Supondo que o ID da lâmpada seja 1
+                # Atualize o estado da lâmpada no dicionário
+                print(f"Estado da lâmpada {smart_object_message.object_id}: {smart_object_message.message}")
+                
+                # Envie uma resposta à lâmpada
+                response_message = f"Estado da lâmpada {smart_object_message.object_id}: {smart_object_message.message}"
+                await loop.sock_sendall(client_socket, response_message.encode('utf-8'))
+            
+            elif smart_object_message.object_id == 2:  # Supondo que o ID do sensor seja 2
+                # Atualize a medição do sensor no dicionário
+                print(f"Medição do Sensor {smart_object_message.object_id}: {smart_object_message.message}")
+                
+                # Envie uma resposta ao sensor (opcional)
+                response_message = f"Medição do Sensor {smart_object_message.object_id} recebida com sucesso."
+                await loop.sock_sendall(client_socket, response_message.encode('utf-8'))
+            
+            elif smart_object_message.object_id == 3:  # Supondo que o ID do dispositivo de som seja 3
+                # Atualize as informações do dispositivo de som no dicionário
+                print(f"Informações do Dispositivo de Som {smart_object_message.object_id}: {smart_object_message.message}")
+                
+                # Não envie uma resposta ao dispositivo de som neste caso
+        
+        except ConnectionResetError:
+            # Conexão encerrada pelo dispositivo
+            disconnected_device = None
+            for socket_key, device_info in connected_devices.items():
+                if device_info["socket"] == client_socket:
+                    disconnected_device = device_info
+                    break
+            
+            if disconnected_device:
+                print(f"Dispositivo com ID {disconnected_device['object_id']} desconectado: {disconnected_device['address']}")
+                del connected_devices[socket_key]
+            break
+
+async def gateway_main():
+    server_ip = '127.0.0.1'  # IP do servidor
+    server_port = 12347  # Porta do servidor
+    
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind((server_ip, server_port))
+    server.listen(5)
+    print(f"Gateway ouvindo em {server_ip}:{server_port}")
+
+    while True:
+        client_socket, addr = await loop.sock_accept(server)
+        print(f"Conexão recebida de {addr}")
+        
+        asyncio.create_task(handle_client(client_socket, addr))
+
+if __name__ == "__main__":
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(gateway_main())
+    
+    while True:
+        command = input("Digite 'identificar' para solicitar identificação dos dispositivos conectados: ").strip().lower()
+        if command == 'identificar':
+            for socket_key, device_info in connected_devices.items():
+                device_socket = device_info["socket"]
+                device_socket.send("Solicitação de Identificação".encode('utf-8'))

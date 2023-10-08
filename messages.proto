@@ -1,0 +1,6 @@
+syntax = "proto3";
+
+message SmartObjectMessage {
+  int32 object_id = 1;
+  string message = 2;
+}
